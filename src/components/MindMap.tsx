@@ -10,15 +10,14 @@ import React, {
 import dynamic from "next/dynamic";
 import type { GraphData, GraphNode, GraphLink, NodeType } from "@/types";
 
-// Dynamic imports — react-force-graph needs browser APIs
-const ForceGraph2D = dynamic(
-  () => import("react-force-graph").then((m) => m.ForceGraph2D),
-  { ssr: false }
-);
-const ForceGraph3D = dynamic(
-  () => import("react-force-graph").then((m) => m.ForceGraph3D),
-  { ssr: false }
-);
+// Dynamic imports — use separate sub-packages to avoid bundling the VR
+// component (react-force-graph-vr), which references AFRAME at module init.
+const ForceGraph2D = dynamic(() => import("react-force-graph-2d"), {
+  ssr: false,
+});
+const ForceGraph3D = dynamic(() => import("react-force-graph-3d"), {
+  ssr: false,
+});
 
 const NODE_COLORS: Record<NodeType, string> = {
   root: "#ffd700",
