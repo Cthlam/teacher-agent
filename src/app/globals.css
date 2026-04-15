@@ -1,0 +1,170 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg: #0d1117;
+  --bg-secondary: #161b22;
+  --bg-tertiary: #21262d;
+  --border: #30363d;
+  --text-primary: #e6edf3;
+  --text-secondary: #8b949e;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  background-color: var(--bg);
+  color: var(--text-primary);
+  font-family: 'Inter', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #30363d;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #484f58;
+}
+
+/* Hide scrollbar for quick-prompts row */
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+/* Markdown prose styles inside NodePanel */
+.prose-node {
+  font-size: 0.8125rem;
+  line-height: 1.6;
+  color: #c9d1d9;
+}
+.prose-node h1,
+.prose-node h2,
+.prose-node h3 {
+  color: #e6edf3;
+  font-weight: 600;
+  margin-top: 1rem;
+  margin-bottom: 0.5rem;
+}
+.prose-node h1 { font-size: 1rem; }
+.prose-node h2 { font-size: 0.9375rem; }
+.prose-node h3 { font-size: 0.875rem; }
+.prose-node p { margin-bottom: 0.75rem; }
+.prose-node ul, .prose-node ol {
+  padding-left: 1.25rem;
+  margin-bottom: 0.75rem;
+}
+.prose-node li { margin-bottom: 0.25rem; }
+.prose-node code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem;
+  background: #21262d;
+  padding: 0.1em 0.4em;
+  border-radius: 4px;
+  color: #f78166;
+}
+.prose-node pre {
+  background: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 0.75rem;
+  overflow-x: auto;
+  margin-bottom: 0.75rem;
+}
+.prose-node pre code {
+  background: none;
+  padding: 0;
+  color: #e6edf3;
+}
+.prose-node blockquote {
+  border-left: 3px solid #4f8ef7;
+  padding-left: 0.75rem;
+  color: #8b949e;
+  margin-bottom: 0.75rem;
+}
+.prose-node table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 0.75rem;
+  font-size: 0.75rem;
+}
+.prose-node th, .prose-node td {
+  border: 1px solid #30363d;
+  padding: 0.375rem 0.625rem;
+  text-align: left;
+}
+.prose-node th {
+  background: #21262d;
+  color: #e6edf3;
+  font-weight: 600;
+}
+.prose-node a {
+  color: #4f8ef7;
+  text-decoration: underline;
+}
+.prose-node strong { color: #e6edf3; font-weight: 600; }
+.prose-node hr {
+  border: none;
+  border-top: 1px solid #30363d;
+  margin: 1rem 0;
+}
+
+/* Chat prose — similar but for the chat panel messages */
+.prose-chat {
+  font-size: 0.75rem;
+  line-height: 1.5;
+  color: #c9d1d9;
+}
+.prose-chat p { margin-bottom: 0.5rem; }
+.prose-chat p:last-child { margin-bottom: 0; }
+.prose-chat code {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.7rem;
+  background: #21262d;
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+  color: #f78166;
+}
+.prose-chat pre {
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 0.5rem;
+  overflow-x: auto;
+  margin: 0.5rem 0;
+}
+.prose-chat pre code { background: none; color: #e6edf3; }
+.prose-chat ul, .prose-chat ol {
+  padding-left: 1rem;
+  margin-bottom: 0.5rem;
+}
+.prose-chat li { margin-bottom: 0.15rem; }
+.prose-chat strong { color: #e6edf3; font-weight: 600; }
+.prose-chat h1, .prose-chat h2, .prose-chat h3 {
+  color: #e6edf3;
+  font-weight: 600;
+  margin: 0.5rem 0 0.25rem;
+}

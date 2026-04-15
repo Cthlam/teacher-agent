@@ -1,0 +1,72 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Classroom {
+  id          String        @id @default(cuid())
+  title       String
+  subject     String
+  description String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  nodes       Node[]
+  edges       Edge[]
+  messages    ChatMessage[]
+  quizzes     Quiz[]
+}
+
+model Node {
+  id          String    @id @default(cuid())
+  classroomId String
+  classroom   Classroom @relation(fields: [classroomId], references: [id], onDelete: Cascade)
+  title       String
+  content     String
+  nodeType    String    @default("concept")
+  posX        Float     @default(0)
+  posY        Float     @default(0)
+  posZ        Float     @default(0)
+  isRoot      Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  sourceEdges Edge[] @relation("SourceNode")
+  targetEdges Edge[] @relation("TargetNode")
+  quizzes     Quiz[]
+}
+
+model Edge {
+  id          String    @id @default(cuid())
+  classroomId String
+  classroom   Classroom @relation(fields: [classroomId], references: [id], onDelete: Cascade)
+  sourceId    String
+  targetId    String
+  source      Node      @relation("SourceNode", fields: [sourceId], references: [id], onDelete: Cascade)
+  target      Node      @relation("TargetNode", fields: [targetId], references: [id], onDelete: Cascade)
+  label       String?
+  createdAt   DateTime  @default(now())
+}
+
+model ChatMessage {
+  id          String    @id @default(cuid())
+  classroomId String
+  classroom   Classroom @relation(fields: [classroomId], references: [id], onDelete: Cascade)
+  role        String
+  content     String
+  createdAt   DateTime  @default(now())
+}
+
+model Quiz {
+  id          String    @id @default(cuid())
+  classroomId String
+  classroom   Classroom @relation(fields: [classroomId], references: [id], onDelete: Cascade)
+  nodeId      String?
+  node        Node?     @relation(fields: [nodeId], references: [id], onDelete: SetNull)
+  title       String
+  questions   String
+  createdAt   DateTime  @default(now())
+}
