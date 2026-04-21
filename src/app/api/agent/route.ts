@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { runAgent } from "@/lib/agent";
-import type { AgentRequest } from "@/types";
+import type { AgentMode, AgentRequest } from "@/types";
 
 export async function POST(request: Request) {
   try {
     const body: AgentRequest = await request.json();
-    const { classroomId, message, activeNodeId } = body;
+    const { classroomId, message, activeNodeId, mode } = body;
 
     if (!classroomId || !message) {
       return NextResponse.json(
@@ -14,7 +14,15 @@ export async function POST(request: Request) {
       );
     }
 
-    const result = await runAgent(classroomId, message, activeNodeId);
+    if (mode && mode !== "local" && mode !== "premium") {
+      return NextResponse.json(
+        { error: "mode must be either 'local' or 'premium'" },
+        { status: 400 }
+      );
+    }
+
+    const agentMode: AgentMode = mode || "local";
+    const result = await runAgent(classroomId, message, activeNodeId, agentMode);
     return NextResponse.json(result);
   } catch (error) {
     console.error("POST /api/agent error:", error);

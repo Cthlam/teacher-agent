@@ -23,6 +23,7 @@ import NodePanel from "@/components/NodePanel";
 import ChatPanel from "@/components/ChatPanel";
 import QuizModal from "@/components/QuizModal";
 import type {
+  AgentMode,
   Classroom,
   GraphData,
   GraphNode,
@@ -87,6 +88,7 @@ export default function ClassroomPage({
   const [chatCollapsed, setChatCollapsed] = useState(false);
   const [nodePanelVisible, setNodePanelVisible] = useState(false);
   const [pageLoading, setPageLoading] = useState(true);
+  const [agentMode, setAgentMode] = useState<AgentMode>("local");
 
   // Load classroom data
   useEffect(() => {
@@ -183,6 +185,7 @@ export default function ClassroomPage({
           classroomId: id,
           message: `Generate a quiz for the node with ID: ${nodeId}. Use the generate_quiz tool.`,
           activeNodeId: nodeId,
+          mode: agentMode,
         }),
       });
       const data: AgentResponse = await res.json();
@@ -218,6 +221,7 @@ export default function ClassroomPage({
           classroomId: id,
           message,
           activeNodeId: selectedNodeId,
+          mode: agentMode,
         }),
       });
 
@@ -341,6 +345,35 @@ export default function ClassroomPage({
           >
             <Box size={10} />
             3D
+          </button>
+        </div>
+
+        <div className="h-4 w-px bg-border" />
+
+        <div className="flex items-center gap-0.5 bg-bg-tertiary rounded-md p-0.5">
+          <button
+            onClick={() => setAgentMode("local")}
+            className={clsx(
+              "px-2 py-0.5 rounded text-xs transition-colors",
+              agentMode === "local"
+                ? "bg-bg-secondary text-text-primary"
+                : "text-text-muted hover:text-text-secondary"
+            )}
+            title="Run with your local Ollama model"
+          >
+            Local
+          </button>
+          <button
+            onClick={() => setAgentMode("premium")}
+            className={clsx(
+              "px-2 py-0.5 rounded text-xs transition-colors",
+              agentMode === "premium"
+                ? "bg-bg-secondary text-text-primary"
+                : "text-text-muted hover:text-text-secondary"
+            )}
+            title="Run with premium Claude API model"
+          >
+            Premium
           </button>
         </div>
 

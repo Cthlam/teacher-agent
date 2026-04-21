@@ -111,4 +111,7 @@ export interface AgentRequest {
   classroomId: string;
   message: string;
   activeNodeId?: string | null;
+  mode?: AgentMode;
 }
+
+export type AgentMode = "local" | "premium";

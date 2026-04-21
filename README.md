@@ -4,7 +4,8 @@ An AI-powered interactive learning application where knowledge is organized as a
 
 ![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-blue?logo=typescript)
-![Anthropic](https://img.shields.io/badge/Claude-Sonnet_4.6-orange?logo=anthropic)
+![Ollama](https://img.shields.io/badge/Ollama-Local_Default-6b46c1)
+![Anthropic](https://img.shields.io/badge/Claude-Premium_Mode-orange?logo=anthropic)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ---
@@ -38,7 +39,11 @@ The knowledge graph is rendered as a physics-based force graph using [react-forc
 | Summary | Orange | Overview / recap |
 
 ### Agentic AI Tutor
-The tutor is powered by **Claude Sonnet 4.6** running an agentic tool-use loop. It has six tools it can call autonomously during a single response:
+The tutor supports two run modes:
+- **Local mode (default): Ollama** — runs against a locally hosted model
+- **Premium mode: Claude API** — runs against Anthropic models
+
+Both modes use the same six agent tools during a single response:
 
 | Tool | What it does |
 |------|-------------|
@@ -60,7 +65,11 @@ Click any node to open a side panel showing the full markdown content. You can:
 - Trigger quiz generation for that specific node
 
 ### Interactive Quizzes
-The agent uses **Claude Haiku 4.5** (fast and cheap) to generate multiple-choice quizzes. Each quiz:
+Quiz generation follows your selected run mode:
+- **Local mode** uses your configured Ollama quiz model
+- **Premium mode** uses your configured Claude quiz model
+
+Each quiz:
 - Presents questions one at a time
 - Shows instant feedback with explanations
 - Tracks score and shows a results screen
@@ -74,7 +83,8 @@ A collapsible chat panel sits at the bottom of the screen with quick-prompt shor
 
 ### Prerequisites
 - Node.js 18+
-- An [Anthropic API key](https://console.anthropic.com/)
+- [Ollama](https://ollama.com/) running locally (default mode)
+- Optional: an [Anthropic API key](https://console.anthropic.com/) for Premium mode
 
 ### Installation
 
@@ -90,11 +100,24 @@ npm install
 cp .env.example .env.local
 ```
 
-Edit `.env.local` and add your key:
+Edit `.env.local` and set your runtime configuration:
 
 ```env
-ANTHROPIC_API_KEY=sk-ant-...
 DATABASE_URL="file:./dev.db"
+OLLAMA_BASE_URL="http://localhost:11434"
+OLLAMA_AGENT_MODEL="qwen3:14b"
+OLLAMA_QUIZ_MODEL="qwen3:14b"
+
+# Optional premium mode
+ANTHROPIC_API_KEY=sk-ant-...
+CLAUDE_AGENT_MODEL="claude-sonnet-4-6"
+CLAUDE_QUIZ_MODEL="claude-haiku-4-5-20251001"
+```
+
+If you're using local mode, ensure your model is pulled first, for example:
+
+```bash
+ollama pull qwen3:14b
 ```
 
 ### Database setup
@@ -121,7 +144,7 @@ src/
 │   ├── page.tsx                     # Home — list and create classrooms
 │   ├── classroom/[id]/page.tsx      # Classroom view (mindmap + chat + node panel)
 │   └── api/
-│       ├── agent/route.ts           # POST /api/agent — runs the Claude agent loop
+│       ├── agent/route.ts           # POST /api/agent — runs local or premium agent mode
 │       ├── classrooms/route.ts      # GET / POST classrooms
 │       ├── classrooms/[id]/route.ts # GET / DELETE a classroom
 │       ├── nodes/[id]/route.ts      # GET / PUT / DELETE a node
@@ -132,7 +155,7 @@ src/
 │   ├── ChatPanel.tsx                # Bottom panel: chat interface
 │   └── QuizModal.tsx                # Full-screen quiz overlay
 ├── lib/
-│   ├── agent.ts                     # Claude agent — tool definitions + agentic loop
+│   ├── agent.ts                     # Agent runtime (Ollama local default + Claude premium)
 │   ├── context-builder.ts           # Builds focused node context for each prompt
 │   └── db.ts                        # Prisma client singleton
 └── types/
