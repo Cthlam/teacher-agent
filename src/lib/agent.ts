@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { prisma } from "./db";
 import { buildClassroomContext, formatContextForPrompt } from "./context-builder";
 import type {
+  AgentMode,
   AgentResponse,
   KnowledgeNode,
   KnowledgeEdge,
@@ -9,16 +10,33 @@ import type {
   QuizQuestion,
 } from "@/types";
 
-const client = new Anthropic({
+const anthropicClient = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
 
-const AGENT_TOOLS: Anthropic.Tool[] = [
+const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || "http://localhost:11434";
+const OLLAMA_AGENT_MODEL = process.env.OLLAMA_AGENT_MODEL || "qwen3:14b";
+const OLLAMA_QUIZ_MODEL = process.env.OLLAMA_QUIZ_MODEL || OLLAMA_AGENT_MODEL;
+const CLAUDE_AGENT_MODEL = process.env.CLAUDE_AGENT_MODEL || "claude-sonnet-4-6";
+const CLAUDE_QUIZ_MODEL =
+  process.env.CLAUDE_QUIZ_MODEL || "claude-haiku-4-5-20251001";
+
+interface AgentTool {
+  name: string;
+  description: string;
+  inputSchema: {
+    type: "object";
+    properties: Record<string, unknown>;
+    required?: string[];
+  };
+}
+
+const AGENT_TOOLS: AgentTool[] = [
   {
     name: "create_node",
     description:
       "Create a new knowledge node in the mindmap. Use this to add a new concept, definition, example, summary, or deep-dive topic to the learning graph. Always create nodes when explaining a new concept or when the user asks to explore something new.",
-    input_schema: {
+    inputSchema: {
       type: "object" as const,
       properties: {
         title: {
@@ -60,7 +78,7 @@ const AGENT_TOOLS: Anthropic.Tool[] = [
     name: "update_node",
     description:
       "Update the content of an existing knowledge node. Use this to enrich or correct existing nodes.",
-    input_schema: {
+    inputSchema: {
       type: "object" as const,
       properties: {
         node_id: {
@@ -83,7 +101,7 @@ const AGENT_TOOLS: Anthropic.Tool[] = [
     name: "create_edge",
     description:
       "Create a link between two existing nodes to show their relationship.",
-    input_schema: {
+    inputSchema: {
       type: "object" as const,
       properties: {
         source_id: {
@@ -105,7 +123,7 @@ const AGENT_TOOLS: Anthropic.Tool[] = [
   {
     name: "get_node_content",
     description: "Retrieve the full content of a specific node by its ID.",
-    input_schema: {
+    inputSchema: {
       type: "object" as const,
       properties: {
         node_id: {
@@ -119,7 +137,7 @@ const AGENT_TOOLS: Anthropic.Tool[] = [
   {
     name: "search_nodes",
     description: "Search for existing nodes by title or content keywords.",
-    input_schema: {
+    inputSchema: {
       type: "object" as const,
       properties: {
         query: {
@@ -138,7 +156,7 @@ const AGENT_TOOLS: Anthropic.Tool[] = [
     name: "generate_quiz",
     description:
       "Generate a multiple-choice quiz to test the user's understanding of a node's content.",
-    input_schema: {
+    inputSchema: {
       type: "object" as const,
       properties: {
         node_id: {
@@ -176,10 +194,131 @@ interface ToolInput {
   difficulty?: string;
 }
 
+interface ToolExecutionState {
+  mode: AgentMode;
+  classroomId: string;
+}
+
+async function generateQuizWithClaude(
+  title: string,
+  content: string,
+  numQuestions: number,
+  difficulty: string
+): Promise<string> {
+  if (!process.env.ANTHROPIC_API_KEY) {
+    throw new Error(
+      "Premium mode requires ANTHROPIC_API_KEY. Set it in your environment."
+    );
+  }
+
+  const quizResponse = await anthropicClient.messages.create({
+    model: CLAUDE_QUIZ_MODEL,
+    max_tokens: 2048,
+    messages: [
+      {
+        role: "user",
+        content: `Generate a ${difficulty} multiple-choice quiz with ${Math.min(numQuestions, 10)} questions about the following content.
+
+Return ONLY valid JSON (no markdown, no code blocks) in this exact format:
+{
+  "title": "Quiz title",
+  "questions": [
+    {
+      "question": "Question text?",
+      "options": ["Option A", "Option B", "Option C", "Option D"],
+      "correctIndex": 0,
+      "explanation": "Why this is correct"
+    }
+  ]
+}
+
+Content to quiz about:
+Title: ${title}
+${content}`,
+      },
+    ],
+  });
+
+  return quizResponse.content[0].type === "text" ? quizResponse.content[0].text : "";
+}
+
+function buildOllamaQuizPrompt(
+  title: string,
+  content: string,
+  numQuestions: number,
+  difficulty: string
+): string {
+  return `Generate a ${difficulty} multiple-choice quiz with ${Math.min(numQuestions, 10)} questions about the following content.
+
+Return ONLY valid JSON (no markdown, no code blocks) in this exact format:
+{
+  "title": "Quiz title",
+  "questions": [
+    {
+      "question": "Question text?",
+      "options": ["Option A", "Option B", "Option C", "Option D"],
+      "correctIndex": 0,
+      "explanation": "Why this is correct"
+    }
+  ]
+}
+
+Content to quiz about:
+Title: ${title}
+${content}`;
+}
+
+async function generateQuizWithOllama(
+  title: string,
+  content: string,
+  numQuestions: number,
+  difficulty: string
+): Promise<string> {
+  const response = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: OLLAMA_QUIZ_MODEL,
+      stream: false,
+      format: "json",
+      messages: [
+        {
+          role: "user",
+          content: buildOllamaQuizPrompt(title, content, numQuestions, difficulty),
+        },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Ollama quiz request failed: ${errorText}`);
+  }
+
+  const payload = (await response.json()) as {
+    message?: { content?: string };
+  };
+
+  return payload.message?.content || "";
+}
+
+async function generateQuiz(
+  title: string,
+  content: string,
+  numQuestions: number,
+  difficulty: string,
+  mode: AgentMode
+): Promise<string> {
+  if (mode === "premium") {
+    return generateQuizWithClaude(title, content, numQuestions, difficulty);
+  }
+  return generateQuizWithOllama(title, content, numQuestions, difficulty);
+}
+
 async function executeToolCall(
   toolName: string,
   toolInput: ToolInput,
-  classroomId: string
+  state: ToolExecutionState
 ): Promise<{
   result: string;
   createdNode?: KnowledgeNode;
@@ -187,6 +326,7 @@ async function executeToolCall(
   createdEdge?: KnowledgeEdge;
   generatedQuiz?: Quiz;
 }> {
+  const { classroomId, mode } = state;
   switch (toolName) {
     case "create_node": {
       const { title, content, node_type, parent_node_id, edge_label } =
@@ -197,7 +337,6 @@ async function executeToolCall(
       });
       const isFirst = existingNodes.length === 0;
 
-      // Spread new nodes in a rough grid layout
       const angle = Math.random() * Math.PI * 2;
       const radius = 200 + Math.random() * 300;
       const posX = Math.cos(angle) * radius;
@@ -261,7 +400,6 @@ async function executeToolCall(
     case "create_edge": {
       const { source_id, target_id, label } = toolInput;
 
-      // Check if edge already exists
       const existing = await prisma.edge.findFirst({
         where: {
           OR: [
@@ -271,7 +409,7 @@ async function executeToolCall(
         },
       });
       if (existing) {
-        return { result: `Edge already exists between these nodes` };
+        return { result: "Edge already exists between these nodes" };
       }
 
       const edge = await prisma.edge.create({
@@ -304,10 +442,7 @@ async function executeToolCall(
       const nodes = await prisma.node.findMany({
         where: {
           classroomId: classroom_id || classroomId,
-          OR: [
-            { title: { contains: query! } },
-            { content: { contains: query! } },
-          ],
+          OR: [{ title: { contains: query! } }, { content: { contains: query! } }],
         },
         take: 10,
       });
@@ -327,39 +462,13 @@ async function executeToolCall(
       const node = await prisma.node.findUnique({ where: { id: node_id! } });
       if (!node) return { result: `Node ${node_id} not found` };
 
-      // Generate quiz using a separate Claude call
-      const quizResponse = await client.messages.create({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 2048,
-        messages: [
-          {
-            role: "user",
-            content: `Generate a ${difficulty} multiple-choice quiz with ${Math.min(num_questions, 10)} questions about the following content.
-
-Return ONLY valid JSON (no markdown, no code blocks) in this exact format:
-{
-  "title": "Quiz title",
-  "questions": [
-    {
-      "question": "Question text?",
-      "options": ["Option A", "Option B", "Option C", "Option D"],
-      "correctIndex": 0,
-      "explanation": "Why this is correct"
-    }
-  ]
-}
-
-Content to quiz about:
-Title: ${node.title}
-${node.content}`,
-          },
-        ],
-      });
-
-      const rawText =
-        quizResponse.content[0].type === "text"
-          ? quizResponse.content[0].text
-          : "";
+      const rawText = await generateQuiz(
+        node.title,
+        node.content,
+        num_questions,
+        difficulty,
+        mode
+      );
 
       let quizData: { title: string; questions: QuizQuestion[] };
       try {
@@ -419,37 +528,38 @@ const SYSTEM_PROMPT = `You are an expert AI tutor helping a student learn deeply
 ## Context
 The classroom context below shows what's already in the knowledge graph. Reference existing nodes by their IDs rather than duplicating content.`;
 
-export async function runAgent(
-  classroomId: string,
-  userMessage: string,
-  activeNodeId?: string | null
-): Promise<AgentResponse> {
-  const ctx = await buildClassroomContext(classroomId, activeNodeId);
-  const contextStr = formatContextForPrompt(ctx);
+interface ClaudeAgentContentBlock {
+  type: "text" | "tool_use";
+  id?: string;
+  name?: string;
+  text?: string;
+  input?: unknown;
+}
 
-  // Load recent chat history (last 20 messages for context)
-  const history = await prisma.chatMessage.findMany({
-    where: { classroomId },
-    orderBy: { createdAt: "asc" },
-    take: 20,
-  });
+interface OllamaToolCall {
+  function: {
+    name: string;
+    arguments: Record<string, unknown> | string;
+  };
+}
 
-  // Save user message
-  await prisma.chatMessage.create({
-    data: { classroomId, role: "user", content: userMessage },
-  });
+interface OllamaMessage {
+  role: "system" | "user" | "assistant" | "tool";
+  content: string;
+  tool_calls?: OllamaToolCall[];
+}
 
-  const messages: Anthropic.MessageParam[] = [
-    ...history.map((m) => ({
-      role: m.role as "user" | "assistant",
-      content: m.content,
-    })),
-    { role: "user", content: userMessage },
-  ];
+async function runPremiumAgentLoop(
+  systemWithContext: string,
+  messages: Anthropic.MessageParam[],
+  state: ToolExecutionState
+) {
+  if (!process.env.ANTHROPIC_API_KEY) {
+    throw new Error(
+      "Premium mode requires ANTHROPIC_API_KEY. Set it in your environment."
+    );
+  }
 
-  const systemWithContext = `${SYSTEM_PROMPT}\n\n---\n\n## Current Knowledge Graph Context\n${contextStr}`;
-
-  // Agentic tool-use loop
   const createdNodes: KnowledgeNode[] = [];
   const updatedNodes: KnowledgeNode[] = [];
   const createdEdges: KnowledgeEdge[] = [];
@@ -464,11 +574,15 @@ export async function runAgent(
   while (continueLoop && iterations < MAX_ITERATIONS) {
     iterations++;
 
-    const response = await client.messages.create({
-      model: "claude-sonnet-4-6",
+    const response = await anthropicClient.messages.create({
+      model: CLAUDE_AGENT_MODEL,
       max_tokens: 4096,
       system: systemWithContext,
-      tools: AGENT_TOOLS,
+      tools: AGENT_TOOLS.map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        input_schema: tool.inputSchema as Anthropic.Tool.InputSchema,
+      })),
       messages: currentMessages,
     });
 
@@ -477,30 +591,27 @@ export async function runAgent(
       response.stop_reason === "stop_sequence"
     ) {
       finalText = response.content
-        .filter((b) => b.type === "text")
-        .map((b) => (b.type === "text" ? b.text : ""))
+        .filter((b): b is Anthropic.TextBlock => b.type === "text")
+        .map((b) => b.text)
         .join("");
       continueLoop = false;
     } else if (response.stop_reason === "tool_use") {
       const toolUseBlocks = response.content.filter(
-        (b) => b.type === "tool_use"
+        (b): b is Anthropic.ToolUseBlock => b.type === "tool_use"
       );
       const toolResults: Anthropic.ToolResultBlockParam[] = [];
 
       for (const block of toolUseBlocks) {
-        if (block.type !== "tool_use") continue;
-
         const toolResult = await executeToolCall(
           block.name,
           block.input as ToolInput,
-          classroomId
+          state
         );
 
         if (toolResult.createdNode) createdNodes.push(toolResult.createdNode);
         if (toolResult.updatedNode) updatedNodes.push(toolResult.updatedNode);
         if (toolResult.createdEdge) createdEdges.push(toolResult.createdEdge);
-        if (toolResult.generatedQuiz)
-          generatedQuiz = toolResult.generatedQuiz;
+        if (toolResult.generatedQuiz) generatedQuiz = toolResult.generatedQuiz;
 
         toolResults.push({
           type: "tool_result",
@@ -509,7 +620,6 @@ export async function runAgent(
         });
       }
 
-      // Add assistant turn + tool results to messages
       currentMessages = [
         ...currentMessages,
         { role: "assistant", content: response.content },
@@ -520,11 +630,117 @@ export async function runAgent(
     }
   }
 
-  // Save assistant message
-  if (finalText) {
-    await prisma.chatMessage.create({
-      data: { classroomId, role: "assistant", content: finalText },
+  return {
+    message: finalText,
+    graphUpdates: {
+      createdNodes,
+      updatedNodes,
+      createdEdges,
+      generatedQuiz,
+    },
+  } as AgentResponse;
+}
+
+function parseOllamaToolInput(input: Record<string, unknown> | string): ToolInput {
+  if (typeof input === "string") {
+    try {
+      return JSON.parse(input) as ToolInput;
+    } catch {
+      return {};
+    }
+  }
+  return input as ToolInput;
+}
+
+async function runLocalAgentLoop(
+  systemWithContext: string,
+  messages: Anthropic.MessageParam[],
+  state: ToolExecutionState
+) {
+  const createdNodes: KnowledgeNode[] = [];
+  const updatedNodes: KnowledgeNode[] = [];
+  const createdEdges: KnowledgeEdge[] = [];
+  let generatedQuiz: Quiz | undefined;
+  let finalText = "";
+
+  const currentMessages: OllamaMessage[] = [
+    { role: "system", content: systemWithContext },
+    ...messages.map((m) => ({
+      role: m.role as "user" | "assistant",
+      content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
+    })),
+  ];
+
+  let continueLoop = true;
+  let iterations = 0;
+  const MAX_ITERATIONS = 10;
+
+  while (continueLoop && iterations < MAX_ITERATIONS) {
+    iterations++;
+
+    const response = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: OLLAMA_AGENT_MODEL,
+        stream: false,
+        messages: currentMessages,
+        tools: AGENT_TOOLS.map((tool) => ({
+          type: "function",
+          function: {
+            name: tool.name,
+            description: tool.description,
+            parameters: tool.inputSchema,
+          },
+        })),
+      }),
     });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Ollama agent request failed: ${errorText}`);
+    }
+
+    const payload = (await response.json()) as {
+      message?: {
+        content?: string;
+        tool_calls?: OllamaToolCall[];
+      };
+    };
+
+    const assistantMessage = payload.message;
+    if (!assistantMessage) break;
+
+    const assistantText = assistantMessage.content || "";
+    const toolCalls = assistantMessage.tool_calls || [];
+
+    currentMessages.push({
+      role: "assistant",
+      content: assistantText,
+      tool_calls: toolCalls,
+    });
+
+    if (toolCalls.length === 0) {
+      finalText = assistantText;
+      continueLoop = false;
+      continue;
+    }
+
+    for (const toolCall of toolCalls) {
+      const toolName = toolCall.function.name;
+      const toolInput = parseOllamaToolInput(toolCall.function.arguments);
+      const toolResult = await executeToolCall(toolName, toolInput, state);
+
+      if (toolResult.createdNode) createdNodes.push(toolResult.createdNode);
+      if (toolResult.updatedNode) updatedNodes.push(toolResult.updatedNode);
+      if (toolResult.createdEdge) createdEdges.push(toolResult.createdEdge);
+      if (toolResult.generatedQuiz) generatedQuiz = toolResult.generatedQuiz;
+
+      currentMessages.push({
+        role: "tool",
+        content: toolResult.result,
+      });
+    }
   }
 
   return {
@@ -535,5 +751,49 @@ export async function runAgent(
       createdEdges,
       generatedQuiz,
     },
-  };
+  } as AgentResponse;
+}
+
+export async function runAgent(
+  classroomId: string,
+  userMessage: string,
+  activeNodeId?: string | null,
+  mode: AgentMode = "local"
+): Promise<AgentResponse> {
+  const ctx = await buildClassroomContext(classroomId, activeNodeId);
+  const contextStr = formatContextForPrompt(ctx);
+
+  const history = await prisma.chatMessage.findMany({
+    where: { classroomId },
+    orderBy: { createdAt: "asc" },
+    take: 20,
+  });
+
+  await prisma.chatMessage.create({
+    data: { classroomId, role: "user", content: userMessage },
+  });
+
+  const messages: Anthropic.MessageParam[] = [
+    ...history.map((m) => ({
+      role: m.role as "user" | "assistant",
+      content: m.content,
+    })),
+    { role: "user", content: userMessage },
+  ];
+
+  const systemWithContext = `${SYSTEM_PROMPT}\n\n---\n\n## Current Knowledge Graph Context\n${contextStr}`;
+  const state: ToolExecutionState = { mode, classroomId };
+
+  const result =
+    mode === "premium"
+      ? await runPremiumAgentLoop(systemWithContext, messages, state)
+      : await runLocalAgentLoop(systemWithContext, messages, state);
+
+  if (result.message) {
+    await prisma.chatMessage.create({
+      data: { classroomId, role: "assistant", content: result.message },
+    });
+  }
+
+  return result;
 }
